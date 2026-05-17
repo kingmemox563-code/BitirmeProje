@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from PIL import Image
+from PIL import Image, ImageOps
 import cv2
 import numpy as np
 import os
@@ -57,6 +57,7 @@ class App(ctk.CTk):
 
         # Kamera
         self.cap = cv2.VideoCapture(0)
+        self.camera_mode = True
         self.img_left = None
         self.img_right = None
         self.rect_L = None
@@ -115,72 +116,81 @@ class App(ctk.CTk):
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(20, weight=1)
 
-        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="Stereo Kontrol", font=ctk.CTkFont(size=22, weight="bold"))
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="3D VOLUME AI", font=ctk.CTkFont(size=24, weight="bold"), text_color="#00e6e6")
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
 
+        # --- SEKME SİSTEMİ (SOL MENÜ) ---
+        self.side_tabs = ctk.CTkTabview(self.sidebar_frame, width=250, height=550)
+        self.side_tabs.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        self.tab_ops = self.side_tabs.add("İşlem Akışı")
+        self.tab_adv = self.side_tabs.add("Ayarlar")
+        
+        # ==========================================
+        # 1. SEKME: İŞLEM AKIŞI
+        # ==========================================
+        
         # Çekim / Yükleme Butonları
-        self.btn_left_load = ctk.CTkButton(self.sidebar_frame, text="Sol Resim Yükle", command=self.load_left, height=30, fg_color="#5c5c8a")
-        self.btn_left_load.grid(row=1, column=0, padx=20, pady=(5, 2))
+        self.btn_left_load = ctk.CTkButton(self.tab_ops, text="Sol Resim Seç", command=self.load_left, height=30, fg_color="#4d4d4d")
+        self.btn_left_load.pack(fill="x", padx=10, pady=(10, 2))
         
-        self.btn_left = ctk.CTkButton(self.sidebar_frame, text="Sol Görüntüyü Çek (L)", command=self.capture_left, height=35)
-        self.btn_left.grid(row=2, column=0, padx=20, pady=(2, 10))
+        self.btn_left = ctk.CTkButton(self.tab_ops, text="1. SOL ÇEK (L)", command=self.capture_left, height=45, font=ctk.CTkFont(weight="bold"))
+        self.btn_left.pack(fill="x", padx=10, pady=(2, 15))
 
-        self.btn_right_load = ctk.CTkButton(self.sidebar_frame, text="Sağ Resim Yükle", command=self.load_right, height=30, fg_color="#5c5c8a")
-        self.btn_right_load.grid(row=3, column=0, padx=20, pady=(5, 2))
+        self.btn_right_load = ctk.CTkButton(self.tab_ops, text="Sağ Resim Seç", command=self.load_right, height=30, fg_color="#4d4d4d")
+        self.btn_right_load.pack(fill="x", padx=10, pady=(5, 2))
 
-        self.btn_right = ctk.CTkButton(self.sidebar_frame, text="Sağ Görüntüyü Çek (R)", command=self.capture_right, state="disabled", height=35)
-        self.btn_right.grid(row=4, column=0, padx=20, pady=(2, 10))
+        self.btn_right = ctk.CTkButton(self.tab_ops, text="2. SAĞ ÇEK (R)", command=self.capture_right, state="disabled", height=45, font=ctk.CTkFont(weight="bold"))
+        self.btn_right.pack(fill="x", padx=10, pady=(2, 15))
 
-        self.btn_calc = ctk.CTkButton(self.sidebar_frame, text="Hizala ve Hesapla", command=self.calculate_stereo, state="disabled", fg_color="#2eb82e", hover_color="#248f24", height=40)
-        self.btn_calc.grid(row=5, column=0, padx=20, pady=(10, 20))
-
-        # Slider Ayarları (Canlı Güncelleme için)
-        self.lbl_block = ctk.CTkLabel(self.sidebar_frame, text="Derinlik Detayı (Block Size)", font=ctk.CTkFont(weight="bold"))
-        self.lbl_block.grid(row=6, column=0, padx=20, pady=(5, 0), sticky="w")
-        self.slider_block = ctk.CTkSlider(self.sidebar_frame, from_=1, to=10, number_of_steps=9, command=self.on_slider_change)
-        self.slider_block.set(3)
-        self.slider_block.grid(row=7, column=0, padx=20, pady=(0, 10))
-
-        self.lbl_disp = ctk.CTkLabel(self.sidebar_frame, text="Derinlik Çarpanı (Num Disp)", font=ctk.CTkFont(weight="bold"))
-        self.lbl_disp.grid(row=8, column=0, padx=20, pady=(0, 0), sticky="w")
-        self.slider_disp = ctk.CTkSlider(self.sidebar_frame, from_=1, to=10, number_of_steps=9, command=self.on_slider_change)
-        self.slider_disp.set(6)
-        self.slider_disp.grid(row=9, column=0, padx=20, pady=(0, 10))
-        
-        # YENI: Speckle Filter (Parazit Engelleyici)
-        self.lbl_speckle = ctk.CTkLabel(self.sidebar_frame, text="Parazit Filtresi (Speckle Win)", font=ctk.CTkFont(weight="bold"))
-        self.lbl_speckle.grid(row=10, column=0, padx=20, pady=(0, 0), sticky="w")
-        self.slider_speckle = ctk.CTkSlider(self.sidebar_frame, from_=0, to=200, number_of_steps=20, command=self.on_slider_change)
-        self.slider_speckle.set(100)
-        self.slider_speckle.grid(row=11, column=0, padx=20, pady=(0, 10))
-        
-        # YENI: Eşik Değeri (Threshold)
-        self.lbl_thresh = ctk.CTkLabel(self.sidebar_frame, text="Derinlik Hassasiyeti (Threshold)", font=ctk.CTkFont(weight="bold"))
-        self.lbl_thresh.grid(row=12, column=0, padx=20, pady=(0, 0), sticky="w")
-        self.slider_thresh = ctk.CTkSlider(self.sidebar_frame, from_=0, to=50, number_of_steps=50, command=self.on_slider_change)
-        self.slider_thresh.set(15)
-        self.slider_thresh.grid(row=13, column=0, padx=20, pady=(0, 10))
-        
-        # YENI: Renk Haritası
-        self.lbl_cmap = ctk.CTkLabel(self.sidebar_frame, text="Renk Haritası (Colormap)", font=ctk.CTkFont(weight="bold"))
-        self.lbl_cmap.grid(row=14, column=0, padx=20, pady=(0, 0), sticky="w")
-        self.combo_cmap = ctk.CTkComboBox(self.sidebar_frame, values=["JET", "PLASMA", "MAGMA", "VIRIDIS", "INFERNO"], command=self.on_slider_change)
-        self.combo_cmap.set("JET")
-        self.combo_cmap.grid(row=15, column=0, padx=20, pady=(0, 20))
+        self.btn_calc = ctk.CTkButton(self.tab_ops, text="3. HESAPLA", command=self.calculate_stereo, state="disabled", fg_color="#2eb82e", hover_color="#248f24", height=50, font=ctk.CTkFont(size=16, weight="bold"))
+        self.btn_calc.pack(fill="x", padx=10, pady=(15, 20))
 
         # Rapor Butonu
-        self.btn_report = ctk.CTkButton(self.sidebar_frame, text="Raporu ve Görseli Kaydet", command=self.save_report, state="disabled", height=40)
-        self.btn_report.grid(row=16, column=0, padx=20, pady=10, sticky="s")
+        self.btn_report = ctk.CTkButton(self.tab_ops, text="PDF Raporu Oluştur", command=self.save_report, state="disabled", height=35, fg_color="#3d3d5c")
+        self.btn_report.pack(fill="x", padx=10, pady=5)
 
-        # YENI: Çoklu Bakış Kontrolleri
-        self.lbl_multi = ctk.CTkLabel(self.sidebar_frame, text="Çoklu Bakış Seansı", font=ctk.CTkFont(weight="bold"))
-        self.lbl_multi.grid(row=17, column=0, padx=20, pady=(10, 0))
+        # Çoklu Bakış Kontrolleri
+        self.lbl_multi = ctk.CTkLabel(self.tab_ops, text="Çoklu Bakış Seansı", font=ctk.CTkFont(weight="bold"))
+        self.lbl_multi.pack(pady=(20, 0))
         
-        self.btn_add_view = ctk.CTkButton(self.sidebar_frame, text="Görünüm Ekle (+)", command=self.add_current_view, state="disabled", fg_color="#b8860b", hover_color="#996515")
-        self.btn_add_view.grid(row=18, column=0, padx=20, pady=5)
+        self.btn_add_view = ctk.CTkButton(self.tab_ops, text="Görünüm Ekle (+)", command=self.add_current_view, state="disabled", fg_color="#b8860b", hover_color="#996515")
+        self.btn_add_view.pack(fill="x", padx=10, pady=5)
         
-        self.btn_reset_session = ctk.CTkButton(self.sidebar_frame, text="Seansı Sıfırla", command=self.reset_session, fg_color="#444444")
-        self.btn_reset_session.grid(row=19, column=0, padx=20, pady=5)
+        self.btn_reset_session = ctk.CTkButton(self.tab_ops, text="Seansı Sıfırla", command=self.reset_session, fg_color="#444444")
+        self.btn_reset_session.pack(fill="x", padx=10, pady=5)
+
+        # ==========================================
+        # 2. SEKME: TEKNİK AYARLAR
+        # ==========================================
+        
+        # Slider Ayarları
+        ctk.CTkLabel(self.tab_adv, text="Derinlik Detayı", font=ctk.CTkFont(weight="bold")).pack(pady=(5, 0), anchor="w", padx=10)
+        self.slider_block = ctk.CTkSlider(self.tab_adv, from_=1, to=10, number_of_steps=9, command=self.on_slider_change)
+        self.slider_block.set(3)
+        self.slider_block.pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkLabel(self.tab_adv, text="Hassasiyet (Num Disp)", font=ctk.CTkFont(weight="bold")).pack(pady=(0, 0), anchor="w", padx=10)
+        self.slider_disp = ctk.CTkSlider(self.tab_adv, from_=1, to=10, number_of_steps=9, command=self.on_slider_change)
+        self.slider_disp.set(6)
+        self.slider_disp.pack(fill="x", padx=10, pady=(0, 10))
+        
+        ctk.CTkLabel(self.tab_adv, text="Parazit Filtresi", font=ctk.CTkFont(weight="bold")).pack(pady=(0, 0), anchor="w", padx=10)
+        self.slider_speckle = ctk.CTkSlider(self.tab_adv, from_=0, to=200, number_of_steps=20, command=self.on_slider_change)
+        self.slider_speckle.set(100)
+        self.slider_speckle.pack(fill="x", padx=10, pady=(0, 10))
+        
+        ctk.CTkLabel(self.tab_adv, text="Eşik Değeri", font=ctk.CTkFont(weight="bold")).pack(pady=(0, 0), anchor="w", padx=10)
+        self.slider_thresh = ctk.CTkSlider(self.tab_adv, from_=0, to=50, number_of_steps=50, command=self.on_slider_change)
+        self.slider_thresh.set(15)
+        self.slider_thresh.pack(fill="x", padx=10, pady=(0, 10))
+        
+        ctk.CTkLabel(self.tab_adv, text="Renk Paleti", font=ctk.CTkFont(weight="bold")).pack(pady=(5, 0), anchor="w", padx=10)
+        self.combo_cmap = ctk.CTkComboBox(self.tab_adv, values=["JET", "PLASMA", "MAGMA", "VIRIDIS", "INFERNO"], command=self.on_slider_change)
+        self.combo_cmap.set("JET")
+        self.combo_cmap.pack(fill="x", padx=10, pady=(0, 20))
+        
+        # Sabit Bilgi (Kullanıcıya bildirim)
+        ctk.CTkLabel(self.tab_adv, text="Not: Kaydırma mesafesi\n10 cm olarak sabitlendi.", text_color="orange", font=ctk.CTkFont(size=11)).pack(pady=10)
 
         # ==========================================
         # SAĞ EKRAN (Sekmeli Görünüm)
@@ -189,6 +199,7 @@ class App(ctk.CTk):
         self.tabview.grid(row=0, column=1, padx=(10, 20), pady=20, sticky="nsew")
         self.tab_main = self.tabview.add("Ölçüm ve Analiz")
         self.tab_3d = self.tabview.add("3D Görünüm")
+        self.tab_history = self.tabview.add("Seans Geçmişi")
         self.tab_settings = self.tabview.add("Gelişmiş Ayarlar")
 
         # --- TAB 1: ÖLÇÜM VE ANALİZ ---
@@ -217,17 +228,17 @@ class App(ctk.CTk):
         self.stats_frame.grid(row=2, column=0, columnspan=3, pady=10, sticky="ew", padx=20)
         self.stats_frame.grid_columnconfigure((0,1,2,3), weight=1)
 
-        self.lbl_volume = ctk.CTkLabel(self.stats_frame, text="Hacim: - cm³", font=ctk.CTkFont(size=20, weight="bold"), text_color="#00e6e6")
-        self.lbl_volume.grid(row=0, column=0, pady=10)
+        self.lbl_volume = ctk.CTkLabel(self.stats_frame, text="Hacim: - cm³", font=ctk.CTkFont(size=28, weight="bold"), text_color="#00e6e6")
+        self.lbl_volume.grid(row=0, column=0, pady=15)
         
-        self.lbl_mass = ctk.CTkLabel(self.stats_frame, text="Ağırlık: - gr", font=ctk.CTkFont(size=20, weight="bold"), text_color="#ffcc00")
-        self.lbl_mass.grid(row=0, column=1, pady=10)
+        self.lbl_mass = ctk.CTkLabel(self.stats_frame, text="Ağırlık: - gr", font=ctk.CTkFont(size=28, weight="bold"), text_color="#ffcc00")
+        self.lbl_mass.grid(row=0, column=1, pady=15)
         
-        self.lbl_dims = ctk.CTkLabel(self.stats_frame, text="Boyut: - cm", font=ctk.CTkFont(size=16), text_color="#ffffff")
-        self.lbl_dims.grid(row=0, column=2, pady=10)
+        self.lbl_dims = ctk.CTkLabel(self.stats_frame, text="Boyut: - cm", font=ctk.CTkFont(size=18), text_color="#ffffff")
+        self.lbl_dims.grid(row=0, column=2, pady=15)
 
-        self.lbl_dist = ctk.CTkLabel(self.stats_frame, text="Mesafe: - cm", font=ctk.CTkFont(size=16), text_color="#ffffff")
-        self.lbl_dist.grid(row=0, column=3, pady=10)
+        self.lbl_dist = ctk.CTkLabel(self.stats_frame, text="Mesafe: - cm", font=ctk.CTkFont(size=18), text_color="#aaaaaa")
+        self.lbl_dist.grid(row=0, column=3, pady=15)
 
         # --- TAB 2: 3D GÖRÜNÜM ---
         self.fig = plt.figure(figsize=(5, 5), dpi=100)
@@ -236,6 +247,18 @@ class App(ctk.CTk):
         self.ax.set_facecolor('#2b2b2b')
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.tab_3d)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
+        # --- TAB 3: SEANS GEÇMİŞİ ---
+        self.tab_history.grid_rowconfigure(0, weight=1)
+        self.tab_history.grid_columnconfigure(0, weight=1)
+        
+        self.history_frame = ctk.CTkScrollableFrame(self.tab_history, label_text="Eklenen Görünümler")
+        self.history_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        self.lbl_no_history = ctk.CTkLabel(self.history_frame, text="Henüz bir görünüm eklenmedi.\n'Görünüm Ekle' butonunu kullanarak ölçümleri kaydedebilirsiniz.", text_color="gray")
+        self.lbl_no_history.pack(pady=20)
+        
+        self.history_widgets = []
 
         # --- TAB 3: AYARLAR ---
         self.settings_scroll = ctk.CTkScrollableFrame(self.tab_settings)
@@ -295,39 +318,80 @@ class App(ctk.CTk):
 
     def update_camera(self):
         ret, frame = self.cap.read()
+        
+        # Eğer kamera yoksa veya okunamadıysa boş bir frame oluştur (Dosyadan yükleme yapabilmek için)
+        if not ret:
+            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(frame, "Kamera Bulunamadi veya Kapali.", (140, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(frame, "Dosyadan resim yukleyebilirsiniz.", (150, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+            ret = True
+
         if ret:
             display_frame = frame.copy()
             
             # --- Canlı Nesne Tespiti (2D Önizleme) ---
             if self.img_left is None and not self.is_calculating:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-                edges = cv2.Canny(blurred, 30, 100)
-                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
-                closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
-                contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                
-                if contours:
-                    valid_contours = [c for c in contours if cv2.contourArea(c) > 3000]
-                    if valid_contours:
-                        c = max(valid_contours, key=cv2.contourArea)
-                        x, y, w, h = cv2.boundingRect(c)
+                if self.ai_active and self.model is not None:
+                    # YOLO ile akıllı tespit (İnsanları yoksayarak)
+                    results = self.model(display_frame, verbose=False, conf=self.ai_confidence)[0]
+                    for box in results.boxes:
+                        cls_id = int(box.cls[0])
+                        label = results.names[cls_id]
+                        if label == "person":
+                            continue # İnsanı nesne olarak görme
+                            
+                        x, y, x2, y2 = map(int, box.xyxy[0].tolist())
+                        w, h = x2 - x, y2 - y
                         
-                        # Nesnenin tüm ekranı kaplamadığından emin ol
                         height, width = frame.shape[:2]
                         if w < width * 0.9 and h < height * 0.9:
                             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                            cv2.putText(display_frame, "Olcum Icin Hedeflenen Nesne", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                            # Canlı tahmini uzaklık simülasyonu (Gerçek uzaklık hesaplama işlemi stereo tarafında yapılıyor)
-                            cv2.putText(display_frame, "Uzaklik & Hacim hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                            cv2.putText(display_frame, f"Hedef: {label}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            cv2.putText(display_frame, "Uzaklik hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                            # Ekranda çok fazla nesne işaretlememesi için ilk uygun olanı bulup çık
+                            break
+                else:
+                    # Geleneksel yöntem (YOLO kapalıysa)
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+                    edges = cv2.Canny(blurred, 30, 100)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+                    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+                    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    if contours:
+                        valid_contours = [c for c in contours if cv2.contourArea(c) > 3000]
+                        if valid_contours:
+                            c = max(valid_contours, key=cv2.contourArea)
+                            x, y, w, h = cv2.boundingRect(c)
+                            
+                            height, width = frame.shape[:2]
+                            if w < width * 0.9 and h < height * 0.9:
+                                cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                                cv2.putText(display_frame, "Olcum Icin Hedeflenen Nesne", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                                cv2.putText(display_frame, "Uzaklik & Hacim hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             # ----------------------------------------
             
             # --- ROI Görselleştirme ---
             # 1. Mevcut Seçili ROI (Varsa)
             if self.selected_roi:
+                # Orijinal resim (ref_img) boyutlarından display_frame boyutlarına ölçekle
+                ref_img_for_roi = self.rect_L if self.rect_L is not None else (self.img_left if self.img_left is not None else None)
+                if ref_img_for_roi is not None:
+                    orig_h, orig_w = ref_img_for_roi.shape[:2]
+                else:
+                    orig_h, orig_w = frame.shape[:2]
+                    
+                disp_h, disp_w = display_frame.shape[:2]
+                scale_x = disp_w / orig_w
+                scale_y = disp_h / orig_h
+                
                 x1, y1, x2, y2 = self.selected_roi
-                cv2.rectangle(display_frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-                cv2.putText(display_frame, "ROI AKTIF", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                d_x1, d_y1 = int(x1 * scale_x), int(y1 * scale_y)
+                d_x2, d_y2 = int(x2 * scale_x), int(y2 * scale_y)
+                
+                cv2.rectangle(display_frame, (d_x1, d_y1), (d_x2, d_y2), (255, 255, 0), 2)
+                cv2.putText(display_frame, "ROI AKTIF", (d_x1, d_y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
             
             # 2. Canlı Çizim Önizlemesi (Fare sürüklenirken)
             if self.is_selecting_roi and self.roi_start and self.roi_end:
@@ -352,18 +416,25 @@ class App(ctk.CTk):
                 cv2.rectangle(display_frame, (p1_x, p1_y), (p2_x, p2_y), (0, 255, 255), 2)
 
             # EĞER DOSYADAN YÜKLENMİŞSE ÖNİZLEME OLARAK ONU GÖSTER
-            if self.img_left is not None and self.img_right is None:
-                # Sadece sol yüklü
-                preview_img = self.img_left.copy()
-                preview_img = cv2.resize(preview_img, (frame.shape[1], frame.shape[0]))
-                cv2.putText(preview_img, "SOL YUKLENDI. Sagi yukleyin.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                display_frame = preview_img
-            elif self.img_left is not None and self.img_right is not None:
-                # İkisi de yüklü
-                preview_img = self.img_left.copy()
-                preview_img = cv2.resize(preview_img, (frame.shape[1], frame.shape[0]))
-                cv2.putText(preview_img, "IKI RESIM HAZIR. HESAPLAYIN.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                display_frame = preview_img
+            if not self.camera_mode:
+                if self.img_left is not None and self.img_right is None:
+                    # Sadece sol yüklü
+                    preview_img = self.img_left.copy()
+                    preview_img = cv2.resize(preview_img, (640, 480))
+                    cv2.putText(preview_img, "SOL YUKLENDI. Sagi yukleyin.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    display_frame = preview_img
+                elif self.img_left is not None and self.img_right is not None:
+                    # İkisi de yüklü
+                    preview_img = self.img_left.copy()
+                    preview_img = cv2.resize(preview_img, (640, 480))
+                    cv2.putText(preview_img, "IKI RESIM HAZIR. HESAPLAYIN.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    display_frame = preview_img
+            else:
+                # CANLI KAMERA MODU - Kamerayı Dondurma
+                if self.img_left is not None and self.img_right is None:
+                    cv2.putText(display_frame, "SOL CEKILDI. Sagi cekin.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                elif self.img_left is not None and self.img_right is not None:
+                    cv2.putText(display_frame, "IKI RESIM DE CEKILDI. HESAPLAYIN.", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
             d_img = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(d_img)
@@ -545,6 +616,10 @@ class App(ctk.CTk):
         """Mevcut ölçümü seansa ekler."""
         if self.current_volume <= 0: return
         
+        # UI Geribildirimi (Buton animasyonu gibi)
+        self.btn_add_view.configure(text="EKLENDI!", fg_color="#2eb82e")
+        self.after(1000, lambda: self.btn_add_view.configure(text="Görünüm Ekle (+)", fg_color="#b8860b"))
+
         view_data = {
             "volume": self.current_volume,
             "mass": self.mass_buffer[-1] if self.mass_buffer else self.current_stats.get('mass_g', 0),
@@ -553,9 +628,23 @@ class App(ctk.CTk):
         }
         self.multi_view_data.append(view_data)
         
+        # Geçmiş tablosunu güncelle
+        if self.lbl_no_history:
+            self.lbl_no_history.pack_forget()
+            self.lbl_no_history = None
+            
         count = len(self.multi_view_data)
+        
+        # Yeni bir satır (row) ekle geçmişe
+        row_frame = ctk.CTkFrame(self.history_frame, fg_color="#262626")
+        row_frame.pack(fill="x", padx=5, pady=2)
+        
+        lbl_info = ctk.CTkLabel(row_frame, text=f"#{count} | {view_data['timestamp']} | {view_data['volume']:.1f} cm³ | {view_data['mass']:.1f} gr", anchor="w")
+        lbl_info.pack(side="left", padx=10, pady=5)
+        
+        self.history_widgets.append(row_frame)
+        
         self.lbl_multi.configure(text=f"Çoklu Bakış: {count} Görünüm", text_color="#ffcc00")
-        self.lbl_volume.configure(text=f"✓ Görünüm {count} Eklendi!", text_color="#2eb82e")
         
         # Ortalama hesapla ve göster
         avg_vol = sum(d['volume'] for d in self.multi_view_data) / count
@@ -563,10 +652,24 @@ class App(ctk.CTk):
         
         self.lbl_volume.configure(text=f"Ort. Hacim: {avg_vol:.2f} cm³", text_color="#00e6e6")
         self.lbl_mass.configure(text=f"Ort. Ağırlık: {avg_mass:.1f} gr")
+        
+        # Otomatik olarak geçmiş sekmesine odaklan (isteğe bağlı)
+        # self.tabview.set("Seans Geçmişi")
 
     def reset_session(self):
         """Tüm çoklu bakış verilerini sıfırlar."""
         self.multi_view_data = []
+        self.camera_mode = True # Seans sıfırlanınca kameraya dön
+        
+        # Geçmiş arayüzünü temizle
+        for widget in self.history_widgets:
+            widget.destroy()
+        self.history_widgets = []
+        
+        if self.lbl_no_history is None:
+            self.lbl_no_history = ctk.CTkLabel(self.history_frame, text="Henüz bir görünüm eklenmedi.\n'Görünüm Ekle' butonunu kullanarak ölçümleri kaydedebilirsiniz.", text_color="gray")
+            self.lbl_no_history.pack(pady=20)
+            
         self.lbl_multi.configure(text="Çoklu Bakış Seansı", text_color="white")
         self.lbl_volume.configure(text="Seans sıfırlandı.", text_color="white")
         self.on_slider_change(None)
@@ -594,13 +697,13 @@ class App(ctk.CTk):
     def load_left(self):
         filepath = ctk.filedialog.askopenfilename(title="Sol Görüntüyü Seç", filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp")])
         if filepath:
+            self.camera_mode = False
             try:
-                # Türkçe karakterli yollara karşı daha dayanıklı yükleme
-                stream = open(filepath, "rb")
-                bytes = bytearray(stream.read())
-                numpyarray = np.asarray(bytes, dtype=np.uint8)
-                self.img_left = cv2.imdecode(numpyarray, cv2.IMREAD_COLOR)
-                stream.close()
+                # PIL kullanarak yükle (EXIF rotasyonunu düzeltmek için)
+                pil_img = Image.open(filepath).convert("RGB")
+                pil_img = ImageOps.exif_transpose(pil_img)
+                numpy_img = np.array(pil_img)
+                self.img_left = cv2.cvtColor(numpy_img, cv2.COLOR_RGB2BGR)
                 
                 if self.img_left is not None:
                     self.btn_right.configure(state="normal")
@@ -613,12 +716,12 @@ class App(ctk.CTk):
     def load_right(self):
         filepath = ctk.filedialog.askopenfilename(title="Sağ Görüntüyü Seç", filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp")])
         if filepath:
+            self.camera_mode = False
             try:
-                stream = open(filepath, "rb")
-                bytes = bytearray(stream.read())
-                numpyarray = np.asarray(bytes, dtype=np.uint8)
-                self.img_right = cv2.imdecode(numpyarray, cv2.IMREAD_COLOR)
-                stream.close()
+                pil_img = Image.open(filepath).convert("RGB")
+                pil_img = ImageOps.exif_transpose(pil_img)
+                numpy_img = np.array(pil_img)
+                self.img_right = cv2.cvtColor(numpy_img, cv2.COLOR_RGB2BGR)
                 
                 if self.img_right is not None:
                     self.btn_calc.configure(state="normal")
@@ -631,12 +734,14 @@ class App(ctk.CTk):
     def capture_left(self):
         ret, frame = self.cap.read()
         if ret:
+            self.camera_mode = True
             self.img_left = frame.copy()
             self.btn_right.configure(state="normal")
             
     def capture_right(self):
         ret, frame = self.cap.read()
         if ret:
+            self.camera_mode = True
             self.img_right = frame.copy()
             self.btn_calc.configure(state="normal")
 
