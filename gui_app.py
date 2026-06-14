@@ -86,8 +86,9 @@ class App(ctk.CTk):
         self.materials = {
             "Su (1.0)": 1.0,
             "Plastik (0.9)": 0.9,
-            "Deri/Cüzdan (0.86)": 0.86,
-            "Elektronik (1.3)": 1.3,
+            "Cüzdan (Deri) (0.86)": 0.86,
+            "Telefon (Elektronik) (1.3)": 1.3,
+            "Araba Anahtarı (Metal/Plastik) (2.0)": 2.0,
             "Tahta (0.7)": 0.7,
             "Demir (7.8)": 7.8,
             "Alüminyum (2.7)": 2.7,
@@ -99,18 +100,18 @@ class App(ctk.CTk):
         # YOLO Sınıf -> Materyal Eşleşmesi (günlük nesneler eklendi)
         self.ai_material_map = {
             # Elektronik
-            "cell phone": "Elektronik (1.3)",
-            "laptop": "Elektronik (1.3)",
-            "keyboard": "Elektronik (1.3)",
-            "mouse": "Elektronik (1.3)",
+            "cell phone": "Telefon (Elektronik) (1.3)",
+            "laptop": "Telefon (Elektronik) (1.3)",
+            "keyboard": "Telefon (Elektronik) (1.3)",
+            "mouse": "Telefon (Elektronik) (1.3)",
             "remote": "Plastik (0.9)",
-            "tv": "Elektronik (1.3)",
+            "tv": "Telefon (Elektronik) (1.3)",
             # Kişisel eşyalar
-            "handbag": "Deri/Cüzdan (0.86)",
-            "backpack": "Deri/Cüzdan (0.86)",
+            "handbag": "Cüzdan (Deri) (0.86)",
+            "backpack": "Cüzdan (Deri) (0.86)",
             "suitcase": "Plastik (0.9)",
             "tie": "Plastik (0.9)",
-            "scissors": "Demir (7.8)",
+            "scissors": "Araba Anahtarı (Metal/Plastik) (2.0)",
             "book": "Tahta (0.7)",
             # Yiyecekler
             "apple": "Elma/Meyve (0.8)",
