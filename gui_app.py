@@ -86,6 +86,9 @@ class App(ctk.CTk):
         self.materials = {
             "Su (1.0)": 1.0,
             "Plastik (0.9)": 0.9,
+            "Cüzdan (Deri) (0.86)": 0.86,
+            "Telefon (Elektronik) (1.3)": 1.3,
+            "Araba Anahtarı (Metal/Plastik) (2.0)": 2.0,
             "Tahta (0.7)": 0.7,
             "Demir (7.8)": 7.8,
             "Alüminyum (2.7)": 2.7,
@@ -94,15 +97,43 @@ class App(ctk.CTk):
             "Özel Giriş": 1.0
         }
         
-        # YOLO Sınıf -> Materyal Eşleşmesi
+        # YOLO Sınıf -> Materyal Eşleşmesi (günlük nesneler eklendi)
         self.ai_material_map = {
+            # Elektronik
+            "cell phone": "Telefon (Elektronik) (1.3)",
+            "laptop": "Telefon (Elektronik) (1.3)",
+            "keyboard": "Telefon (Elektronik) (1.3)",
+            "mouse": "Telefon (Elektronik) (1.3)",
+            "remote": "Plastik (0.9)",
+            "tv": "Telefon (Elektronik) (1.3)",
+            # Kişisel eşyalar
+            "handbag": "Cüzdan (Deri) (0.86)",
+            "backpack": "Cüzdan (Deri) (0.86)",
+            "suitcase": "Plastik (0.9)",
+            "tie": "Plastik (0.9)",
+            "scissors": "Araba Anahtarı (Metal/Plastik) (2.0)",
+            "book": "Tahta (0.7)",
+            # Yiyecekler
             "apple": "Elma/Meyve (0.8)",
             "orange": "Elma/Meyve (0.8)",
+            "banana": "Elma/Meyve (0.8)",
+            "sandwich": "Ekmek (0.5)",
+            "donut": "Ekmek (0.5)",
+            "cake": "Ekmek (0.5)",
+            # Mutfak / Günlük
             "bottle": "Plastik (0.9)",
             "cup": "Plastik (0.9)",
             "bowl": "Plastik (0.9)",
-            "sandwich": "Ekmek (0.5)",
-            "donut": "Ekmek (0.5)"
+            "wine glass": "Plastik (0.9)",
+            "vase": "Plastik (0.9)",
+            "clock": "Elektronik (1.3)",
+        }
+        
+        # Canlı kamerada atlanacak büyük/sabit nesne sınıfları
+        self.skip_live_classes = {
+            "person", "chair", "couch", "sofa", "bed", "dining table",
+            "tv", "monitor", "refrigerator", "oven", "sink",
+            "toilet", "door", "window", "wall", "floor", "ceiling"
         }
 
         # -- Genel Çerçeve (Layout) --
@@ -331,27 +362,34 @@ class App(ctk.CTk):
             
             # --- Canlı Nesne Tespiti (2D Önizleme) ---
             if self.img_left is None and not self.is_calculating:
+                detected_by_ai = False
                 if self.ai_active and self.model is not None:
                     # YOLO ile akıllı tespit (İnsanları yoksayarak)
                     results = self.model(display_frame, verbose=False, conf=self.ai_confidence)[0]
                     for box in results.boxes:
                         cls_id = int(box.cls[0])
                         label = results.names[cls_id]
-                        if label == "person":
-                            continue # İnsanı nesne olarak görme
+                        # Büyük sabit nesneleri ve insanı atla
+                        if label in self.skip_live_classes:
+                            continue
                             
                         x, y, x2, y2 = map(int, box.xyxy[0].tolist())
                         w, h = x2 - x, y2 - y
                         
                         height, width = frame.shape[:2]
                         if w < width * 0.9 and h < height * 0.9:
+                            detected_by_ai = True
+                            # Nesne adını Türkçeleştir (kısaca)
+                            tr_label = self._translate_label(label)
                             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                            cv2.putText(display_frame, f"Hedef: {label}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            cv2.putText(display_frame, f"Hedef: {tr_label}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                             cv2.putText(display_frame, "Uzaklik hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                             # Ekranda çok fazla nesne işaretlememesi için ilk uygun olanı bulup çık
                             break
-                else:
-                    # Geleneksel yöntem (YOLO kapalıysa)
+                
+                # Eğer AI aktif değilse veya hedef bulamadıysa geleneksel yönteme dön
+                if not detected_by_ai:
+                    # Geleneksel yöntem
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     blurred = cv2.GaussianBlur(gray, (7, 7), 0)
                     edges = cv2.Canny(blurred, 30, 100)
@@ -368,7 +406,7 @@ class App(ctk.CTk):
                             height, width = frame.shape[:2]
                             if w < width * 0.9 and h < height * 0.9:
                                 cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                                cv2.putText(display_frame, "Olcum Icin Hedeflenen Nesne", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                                cv2.putText(display_frame, "Hedef Nesne (Geleneksel)", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                                 cv2.putText(display_frame, "Uzaklik & Hacim hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             # ----------------------------------------
             
@@ -395,24 +433,23 @@ class App(ctk.CTk):
             
             # 2. Canlı Çizim Önizlemesi (Fare sürüklenirken)
             if self.is_selecting_roi and self.roi_start and self.roi_end:
-                # Koordinatları 640x400'den orijinal görüntü boyutuna çevir
                 lbl_w = self.lbl_cam.winfo_width()
                 lbl_h = self.lbl_cam.winfo_height()
-                disp_w, disp_h = 640, 400
-                offset_x = (lbl_w - disp_w) / 2
-                offset_y = (lbl_h - disp_h) / 2
                 
-                # Orijinal resim boyutu
+                # display_frame boyutuna doğrudan ölçekle (offset yok, NW anchor)
                 img_h, img_w = display_frame.shape[:2]
-                sx, sy = img_w / disp_w, img_h / disp_h
+                sx, sy = img_w / lbl_w, img_h / lbl_h
                 
-                # Başlangıç ve bitiş noktalarını ölçekle
-                p1_x = int((self.roi_start[0] - offset_x) * sx)
-                p1_y = int((self.roi_start[1] - offset_y) * sy)
-                p2_x = int((self.roi_end[0] - offset_x) * sx)
-                p2_y = int((self.roi_end[1] - offset_y) * sy)
+                p1_x = int(self.roi_start[0] * sx)
+                p1_y = int(self.roi_start[1] * sy)
+                p2_x = int(self.roi_end[0] * sx)
+                p2_y = int(self.roi_end[1] * sy)
                 
-                # Geçici kutuyu çiz (Sarı)
+                p1_x = max(0, min(p1_x, img_w))
+                p1_y = max(0, min(p1_y, img_h))
+                p2_x = max(0, min(p2_x, img_w))
+                p2_y = max(0, min(p2_y, img_h))
+                
                 cv2.rectangle(display_frame, (p1_x, p1_y), (p2_x, p2_y), (0, 255, 255), 2)
 
             # EĞER DOSYADAN YÜKLENMİŞSE ÖNİZLEME OLARAK ONU GÖSTER
@@ -458,64 +495,43 @@ class App(ctk.CTk):
             self.roi_end = (event.x, event.y)
             self.is_selecting_roi = False
             
-            # Koordinatları sırala
+            # Koordinatları sırala (label koordinatlarında)
             x1 = min(self.roi_start[0], self.roi_end[0])
             y1 = min(self.roi_start[1], self.roi_end[1])
             x2 = max(self.roi_start[0], self.roi_end[0])
             y2 = max(self.roi_start[1], self.roi_end[1])
             
-            # Koordinat Ölçekleme (Display -> Image)
-            # CTkImage size (640, 400) olarak ayarlandığı için, tıklamalar bu alana göredir.
-            # Ancak label daha geniş olabilir, bu yüzden görüntünün merkezlendiğini varsayıyoruz.
+            # Label boyutları
             lbl_w = self.lbl_cam.winfo_width()
             lbl_h = self.lbl_cam.winfo_height()
-            
-            # Görüntü boyutu (Daha önce 640x400 olarak set ettik)
-            disp_w, disp_h = 640, 400
-            
-            # Ofset hesapla (Eğer label daha büyükse görüntü merkezlenir)
-            offset_x = (lbl_w - disp_w) / 2
-            offset_y = (lbl_h - disp_h) / 2
-            
-            # Tıklamayı 640x400 düzlemine çek
-            rel_x = event.x - offset_x
-            rel_y = event.y - offset_y
-            
-            # Sınır kontrolü (Görüntü dışına tıklandıysa iptal et)
-            if rel_x < 0 or rel_x > disp_w or rel_y < 0 or rel_y > disp_h:
-                return
 
             # Seçim yapılacak referans görüntüyü belirle
             ref_img = self.rect_L if self.rect_L is not None else (self.img_left if self.img_left is not None else None)
             
-            # Eğer referans görüntü yoksa (kamera açıkken seçim), kamera boyutlarını al
             if ref_img is not None:
                 img_h, img_w = ref_img.shape[:2]
             else:
-                # Kameradan anlık bir kare alarak boyut belirle
                 ret, tmp_f = self.cap.read()
                 if ret:
                     img_h, img_w = tmp_f.shape[:2]
                 else:
-                    img_h, img_w = 480, 640 # Fallback
+                    img_h, img_w = 480, 640
 
-            sx, sy = img_w / disp_w, img_h / disp_h
+            # CTkLabel görüntüyü sol-üst (NW) köşeden başlatır, offset yok
+            sx = img_w / lbl_w
+            sy = img_h / lbl_h
             
             # EĞER TIKLAMA İSE (Sürükleme değilse, < 8px)
             dist = np.sqrt((x2-x1)**2 + (y2-y1)**2)
             if dist < 8 and self.disp_viz_raw is not None and self.rect_L is not None:
-                # Akıllı Tıklama (Smart Click) - Sadece derinlik haritası varsa çalışır
-                click_x, click_y = int(rel_x * sx), int(rel_y * sy)
+                # Akıllı Tıklama (Smart Click)
+                click_x, click_y = int(event.x * sx), int(event.y * sy)
                 
-                # Tıklanan noktadaki derinliği al
                 if 0 <= click_y < img_h and 0 <= click_x < img_w:
                     depth_val = float(self.disp_viz_raw[click_y, click_x])
-                    
-                    # Eşik değerini bu derinliğe göre otomatik ayarla (Biraz tolerans ile)
                     new_thresh = max(5, depth_val - 10)
                     self.slider_thresh.set(new_thresh)
                     
-                    # Bu derinlikteki nesneyi (konturu) bul
                     mask = (self.disp_viz_raw > new_thresh).astype(np.uint8) * 255
                     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                     
@@ -528,16 +544,14 @@ class App(ctk.CTk):
                             break
                     
                     if not found:
-                        # Eğer kontur içinde değilse küçük bir kutu oluştur
                         self.selected_roi = [max(0, click_x-40), max(0, click_y-40), 
                                              min(img_w, click_x+40), min(img_h, click_y+40)]
             else:
                 # Normal Dikdörtgen ROI Seçimi
-                # Sürükleme koordinatlarını da 640x400 düzlemine göre normalize etmeliyiz
-                norm_x1 = (x1 - offset_x) * sx
-                norm_y1 = (y1 - offset_y) * sy
-                norm_x2 = (x2 - offset_x) * sx
-                norm_y2 = (y2 - offset_y) * sy
+                norm_x1 = x1 * sx
+                norm_y1 = y1 * sy
+                norm_x2 = x2 * sx
+                norm_y2 = y2 * sy
                 self.selected_roi = [int(max(0, norm_x1)), int(max(0, norm_y1)), 
                                      int(min(img_w, norm_x2)), int(min(img_h, norm_y2))]
             
@@ -564,6 +578,36 @@ class App(ctk.CTk):
         self.ai_confidence = float(value)
         self.lbl_conf.configure(text=f"AI Güven Eşiği: {self.ai_confidence:.2f}")
 
+    def _translate_label(self, label: str) -> str:
+        """YOLO sınıf adını kısa Türkçeye çevirir."""
+        _MAP = {
+            "cell phone": "Telefon",
+            "laptop": "Dizüstü",
+            "keyboard": "Klavye",
+            "mouse": "Mouse",
+            "remote": "Kumanda",
+            "handbag": "Çanta/Cüzdan",
+            "backpack": "Sırt Çantası",
+            "suitcase": "Bavul",
+            "book": "Kitap",
+            "scissors": "Makas",
+            "bottle": "Şişe",
+            "cup": "Bardak",
+            "bowl": "Kase",
+            "apple": "Elma",
+            "orange": "Portakal",
+            "banana": "Muz",
+            "sandwich": "Sandviç",
+            "clock": "Saat",
+            "vase": "Vazo",
+            "knife": "Bıçak",
+            "fork": "Çatal",
+            "spoon": "Kaşık",
+            "pen": "Kalem",
+            "pencil": "Kalem",
+        }
+        return _MAP.get(label, label)
+
     def run_ai_detection(self):
         if self.model is None or self.img_left is None: return
         
@@ -580,8 +624,8 @@ class App(ctk.CTk):
             cls_id = int(box.cls[0])
             label = results.names[cls_id]
             
-            # İnsan (person) sınıfını atla
-            if label == "person":
+            # Büyük sabit nesneleri ve insanı atla
+            if label in self.skip_live_classes:
                 continue
                 
             x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -609,8 +653,26 @@ class App(ctk.CTk):
                 self.combo_material.set(mat_name)
                 self.on_material_change(mat_name)
             
-            self.lbl_volume.configure(text=f"AI: {best['label']} Merkeze Yakın Tespit!", text_color="#2eb82e")
+            tr_label = self._translate_label(best['label'])
+            self.lbl_volume.configure(text=f"AI: {tr_label} Tespit Edildi!", text_color="#2eb82e")
             self.on_slider_change(None)
+        else:
+            # Geleneksel yöntemle en büyük nesneyi bul (Cüzdan, Anahtar vb. YOLO tarafından tanınmayanlar için)
+            gray = cv2.cvtColor(self.img_left, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+            edges = cv2.Canny(blurred, 30, 100)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+            contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                valid_contours = [c for c in contours if cv2.contourArea(c) > 3000]
+                if valid_contours:
+                    c = max(valid_contours, key=cv2.contourArea)
+                    x, y, w, h = cv2.boundingRect(c)
+                    self.selected_roi = [x, y, x+w, y+h]
+                    self.lbl_volume.configure(text="Geleneksel Kontur Tespiti Aktif", text_color="#2eb82e")
+                    self.on_slider_change(None)
 
     def add_current_view(self):
         """Mevcut ölçümü seansa ekler."""
@@ -695,6 +757,7 @@ class App(ctk.CTk):
             self.lbl_volume.configure(text="Geçersiz değer! Sadece sayı girin (Örn: 8.5)", text_color="red")
 
     def load_left(self):
+        self.selected_roi = None  # Yeni resim yüklendiği için eski ROI'yi sıfırla
         filepath = ctk.filedialog.askopenfilename(title="Sol Görüntüyü Seç", filetypes=[("Image Files", "*.jpg *.jpeg *.png *.bmp")])
         if filepath:
             self.camera_mode = False
@@ -732,6 +795,7 @@ class App(ctk.CTk):
                 self.lbl_volume.configure(text=f"Yükleme Hatası: {str(e)}", text_color="red")
 
     def capture_left(self):
+        self.selected_roi = None  # Yeni çekim yapıldığı için eski ROI'yi sıfırla
         ret, frame = self.cap.read()
         if ret:
             self.camera_mode = True

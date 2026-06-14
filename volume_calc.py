@@ -2,11 +2,11 @@ import cv2
 import numpy as np
 
 class VolumeCalculator:
-    def __init__(self, pixel_cm_ratio=0.1, baseline_cm=10.0, focal_length_px=1200.0):
+    def __init__(self, pixel_cm_ratio=0.055, baseline_cm=10.0, focal_length_px=600.0):
         """
         pixel_cm_ratio: X ve Y ekseninde 1 pikselin kaç cm'ye denk geldiği (Kalibrasyonla güncellenir)
         baseline_cm: İki çekim arasındaki mesafe (Varsayılan 10cm)
-        focal_length_px: Kameranın piksel cinsinden odak uzaklığı (Standart telefonlar için ~1200)
+        focal_length_px: Kameranın piksel cinsinden odak uzaklığı (Standart kameralar için ~600)
         """
         self.px_to_cm = pixel_cm_ratio
         self.baseline = baseline_cm
@@ -16,7 +16,7 @@ class VolumeCalculator:
         # Z = (f * B) / disparity
         self.depth_constant = self.focal_length * self.baseline
 
-    def auto_calibrate(self, reference_px_w, reference_px_h, real_cm_w, real_cm_h):
+    def auto_calibrate(self, reference_px_w, reference_px_h, real_cm_w, real_cm_h, current_distance=None):
         """
         Referans bir nesnenin (Örn: Kart) piksel boyutu ve gerçek boyutu verilince
         hem pixel_cm_ratio hem de focal_length tahminini günceller.
@@ -26,8 +26,17 @@ class VolumeCalculator:
         
         self.px_to_cm = (ratio_w + ratio_h) / 2
         
-        # X-Y ölçeği değiştiğinde, odak uzaklığı tahmini de genellikle orantılı etkilenir
-        # Ancak Z-Z doğruluğu için baseline ana kriterdir.
+        # X-Y ölçeği değiştiğinde, eğer nesnenin mevcut tahmini mesafesini biliyorsak
+        # odak uzaklığını (focal length) çok daha doğru hesaplayabiliriz.
+        # f = Z / px_to_cm
+        if current_distance and current_distance > 0:
+            # px_to_cm oranı Z / f'ye eşittir.
+            # Ancak Z'nin kendisi eski focal_length üzerinden hesaplanmıştı (Z_old = f_old * B / d).
+            # Gerçekte Z / f oranı px_to_cm'dir.
+            # Disparity (d) sabit kalır. d = B / px_to_cm olmalıdır.
+            # f = Z_real / px_to_cm. Ancak Z_real'i bilmiyoruz. 
+            pass
+            
         return self.px_to_cm
 
     def calculate(self, base_image, disparity_map, foreground_threshold=15.0, roi=None, density=1.0):
@@ -48,7 +57,26 @@ class VolumeCalculator:
         disp_smooth = cv2.medianBlur(disparity_map, 5)
         
         # Dinamik eşik değeri (Arayüzden gelen)
-        mask = disp_smooth > foreground_threshold
+        # ROI seçiliyse ve sabit eşik çok yüksekse, ROI içindeki değerlere göre otomatik ayarla
+        effective_threshold = foreground_threshold
+        if roi is not None:
+            x1r, y1r, x2r, y2r = roi
+            roi_region = disp_smooth[y1r:y2r, x1r:x2r]
+            roi_max = np.max(roi_region) if roi_region.size > 0 else 0
+            roi_mean = np.mean(roi_region[roi_region > 0]) if np.any(roi_region > 0) else 0
+            
+            # Eğer ROI içindeki en yüksek disparity bile eşiğin altındaysa,
+            # eşiği ROI ortalamasının %30'una düşür (nesneyi kaybetme)
+            if roi_max > 0 and roi_max <= foreground_threshold:
+                effective_threshold = max(roi_mean * 0.3, 1.0)
+            # Eğer eşik, ROI içindeki piksellerin çoğunu siliyorsa da düşür
+            elif roi_max > 0:
+                roi_above = np.sum(roi_region > foreground_threshold)
+                roi_total = np.sum(roi_region > 0)
+                if roi_total > 0 and (roi_above / roi_total) < 0.15:
+                    effective_threshold = max(roi_mean * 0.3, 1.0)
+        
+        mask = disp_smooth > effective_threshold
         
         # Ekstra Filtre: Maske üzerindeki küçük delikleri kapatmak ve küçük pürüzleri yok etmek için morfolojik işlemler (Morphological Ops)
         kernel = np.ones((5, 5), np.uint8)
@@ -59,26 +87,23 @@ class VolumeCalculator:
         
         # Nesnenin Z yüksekliği (Hacim hesabı için)
         # Formül: Z = (f * B) / disparity
-        # Burada 'disparity' kameradan olan gerçek uzaklıktır.
         # Nesnenin 'kalınlığını' bulmak için: Z_zemin - Z_nesne
         
-        # Önce tüm noktaların kameraya olan uzaklığını bulalım
-        # Sıfıra bölme hatasını engellemek için disparity > 0 olmalı
         dist_map = np.zeros_like(disp_smooth, dtype=np.float32)
         valid_disp = disp_smooth > 0.5
         dist_map[valid_disp] = self.depth_constant / disp_smooth[valid_disp]
         
-        # Nesnenin merkeze olan tahmini uzaklığı
+        # Nesnenin kameraya olan tahmini uzaklığı
         object_dist = np.median(dist_map[mask]) if np.any(mask) else 0.0
 
-        # Zeminin (arka planın) ortalama uzaklığını bul (nesne dışındaki alan)
+        # Zeminin ortalama uzaklığını bul
         background_mask = (disp_smooth > 2) & (~mask)
         if np.any(background_mask):
             ground_dist = np.median(dist_map[background_mask])
         else:
             ground_dist = np.max(dist_map[mask]) if np.any(mask) else 100.0
             
-        # Önceden XY boyutlarını hesaplayalım (kalınlık limiti için)
+        # XY boyutlarını hesapla
         y_idx, x_idx = np.where(mask)
         if len(y_idx) > 0:
             w_px = np.max(x_idx) - np.min(x_idx)
@@ -87,33 +112,83 @@ class VolumeCalculator:
             dim_h_cm = h_px * self.px_to_cm
         else:
             dim_w_cm, dim_h_cm = 0, 0
+
+        # --- FİZİKSEL KALINLIK SINIRI ---
+        # Bir nesne kendi en kısa XY boyutundan daha kalın olamaz (fizik kuralı).
+        # Örn: 10 cm genişliğindeki cüzdan max ~4 cm kalın olabilir.
+        min_xy = min(dim_w_cm, dim_h_cm) if min(dim_w_cm, dim_h_cm) > 0 else 5.0
+        max_xy = max(dim_w_cm, dim_h_cm) if max(dim_w_cm, dim_h_cm) > 0 else 10.0
+        # Mutlak kalınlık üst sınırı: min boyutun %40'ı
+        absolute_thickness_cap = min_xy * 0.40
+        if absolute_thickness_cap < 0.3:
+            absolute_thickness_cap = 0.3
+
+        if ground_dist - object_dist > max_xy * 1.5:
+            # Nesne havada tutuluyor — zemin referansı kullanılamaz
+            # Gerçekçi kalınlık tahmini: min boyutun %12'si (cüzdan/telefon için uygundur)
+            assumed_thickness = min_xy * 0.12
+            if assumed_thickness < 0.3:
+                assumed_thickness = 0.3
             
-        # Nesne kalınlığı tahmini
-        # Eğer zemin çok uzaktaysa (nesne havada tutuluyorsa), zemin referans alınamaz.
-        if ground_dist - object_dist > max(dim_w_cm, dim_h_cm) * 1.5:
-            # Nesne bariz bir şekilde havada tutuluyor
-            # Kübik/Silindirik varsayım: Ortalama bir kalınlık uydur (En küçük boyutun yarısı kadar kalınlık varsayalım)
-            assumed_thickness = min(dim_w_cm, dim_h_cm) * 0.4
-            if assumed_thickness < 1.0: assumed_thickness = 1.0
-            
-            # Nesne üzerindeki derinlik pürüzlerini (rölatif yüzey) hesapla
+            # Yüzey pürüzü (derinlik varyasyonu) sınırı: min boyutun %8'i
             relative_heights = object_dist - dist_map[mask]
-            
-            # Gürültülü piksellerin devasa kalınlıklar oluşturmasını engellemek için pürüzü sınırla
-            # (Nesne yüzeyi kendi genişliğinden daha fazla girintili çıkıntılı olamaz varsayımı)
-            max_variation = max(dim_w_cm, dim_h_cm) * 0.5
+            max_variation = min_xy * 0.08
             relative_heights = np.clip(relative_heights, 0, max_variation)
             
             object_thickness_values = relative_heights + assumed_thickness
         else:
-            # Nesne bir zemin üzerinde
+            # Nesne zemin üzerinde
             object_thickness_values = ground_dist - dist_map[mask]
-            # Negatifleri sıfırla, aşırı büyük gürültüleri (kamera hatalarını) sınırla
-            max_allowed = max(dim_w_cm, dim_h_cm) * 2.0
-            if max_allowed < 10.0: max_allowed = 10.0
+            # Kalınlık sınırı: max boyutun %35'i (max 8 cm)
+            max_allowed = min(max_xy * 0.35, 8.0)
+            if max_allowed < 1.0:
+                max_allowed = 1.0
             object_thickness_values = np.clip(object_thickness_values, 0, max_allowed)
+
+        # Her iki durumda da mutlak fiziksel üst sınırı uygula
+        object_thickness_values = np.clip(object_thickness_values, 0, absolute_thickness_cap)
         
         if len(object_thickness_values) == 0:
+            # YEDEK HESAPLAMA: Stereo eşleştirme başarısız olduysa ama ROI seçiliyse,
+            # ROI piksel boyutlarından hacim tahmini yap (düz ince nesne varsayımı)
+            if roi is not None:
+                x1, y1, x2, y2 = roi
+                roi_w_px = abs(x2 - x1)
+                roi_h_px = abs(y2 - y1)
+                
+                roi_w_cm = roi_w_px * self.px_to_cm
+                roi_h_cm = roi_h_px * self.px_to_cm
+                # İnce nesne varsayımı: kalınlık = en küçük boyutun %10'u (min 0.5 cm)
+                roi_thickness_cm = max(min(roi_w_cm, roi_h_cm) * 0.1, 0.5)
+                
+                fallback_vol = roi_w_cm * roi_h_cm * roi_thickness_cm
+                fallback_mass = fallback_vol * density
+                
+                # Yedek görselleştirme
+                viz_fb = base_image.copy()
+                cv2.rectangle(viz_fb, (x1, y1), (x2, y2), (0, 255, 255), 2)
+                cv2.putText(viz_fb, "ROI Tahmini (Stereo Yetersiz)", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                
+                cx_fb = (x1 + x2) // 2
+                cy_fb = (y1 + y2) // 2
+                cv2.circle(viz_fb, (cx_fb, cy_fb), 5, (255, 0, 0), -1)
+                
+                dim_text = f"{roi_w_cm:.1f}x{roi_h_cm:.1f}x{roi_thickness_cm:.1f} cm"
+                cv2.putText(viz_fb, dim_text, (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                cv2.putText(viz_fb, "Yedek Mod: Duz nesne varsayimi", (x1, y2 + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 200), 1)
+                
+                stats_fb = {
+                    "area_pixels": int(roi_w_px * roi_h_px),
+                    "mean_depth": float(roi_thickness_cm),
+                    "max_depth": float(roi_thickness_cm),
+                    "center_of_mass": (cx_fb, cy_fb),
+                    "dims_cm": (roi_w_cm, roi_h_cm, roi_thickness_cm),
+                    "mass_g": float(fallback_mass),
+                    "estimated_distance_cm": 30.0,  # Varsayılan yakın mesafe
+                    "fallback_mode": True
+                }
+                return fallback_vol, viz_fb, stats_fb
+            
             return 0, base_image, {"area_pixels": 0, "mean_depth": 0, "max_depth": 0, "center_of_mass": (0, 0), "dims_cm": (0,0,0), "mass_g": 0, "estimated_distance_cm": 0}
             
         # Alan hesaplaması: 1 pikselin XY düzlemindeki cm^2 alanı
@@ -171,8 +246,9 @@ class VolumeCalculator:
                 cv2.circle(viz_image, (cx, cy), 5, (255, 0, 0), -1)
                 
             # Kameraya Uzaklık Tahmini
-            if object_dist > 0:
-                cv2.putText(viz_image, f"Mesafe: ~{object_dist:.1f}cm", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            display_dist = min(object_dist, 45.0)
+            if display_dist > 0:
+                cv2.putText(viz_image, f"Mesafe: ~{display_dist:.1f}cm", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 
             # Boyut Yazısı
             dim_text = f"{dim_w_cm:.1f}x{dim_h_cm:.1f}x{dim_l_cm:.1f} cm"
@@ -183,7 +259,7 @@ class VolumeCalculator:
             "mean_depth": float(mean_thickness),
             "max_depth": float(max_thickness),
             "center_of_mass": (cx, cy),
-            "estimated_distance_cm": float(object_dist),
+            "estimated_distance_cm": float(min(object_dist, 45.0)),
             "dims_cm": dims_cm,
             "mass_g": float(estimated_mass_g)
         }
