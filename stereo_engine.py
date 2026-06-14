@@ -32,7 +32,7 @@ class StereoEngine:
         # 2. Noktaları FLANN ile eşleştirme
         matches = self.flann.knnMatch(des1, des2, k=2)
         
-        # Daha sıkı oran testi (0.8 -> 0.7) hatalı eşleşmeleri azaltır
+        # Daha sıkı oran testi (0.8 -> 0.7) ve dikey sapma filtresi hatalı eşleşmeleri azaltır
         good_matches = []
         pts1 = []
         pts2 = []
@@ -40,9 +40,13 @@ class StereoEngine:
             if len(dMatch) == 2:
                 m, n = dMatch
                 if m.distance < 0.7 * n.distance:
-                    good_matches.append(m)
-                    pts2.append(kp2[m.trainIdx].pt)
-                    pts1.append(kp1[m.queryIdx].pt)
+                    pt1 = kp1[m.queryIdx].pt
+                    pt2 = kp2[m.trainIdx].pt
+                    # Yatay hareket varsayımı: dikey (Y) sapma küçük olmalı (maks 30 piksel)
+                    if abs(pt1[1] - pt2[1]) < 30.0:
+                        good_matches.append(m)
+                        pts2.append(pt2)
+                        pts1.append(pt1)
                 
         pts1 = np.float32(pts1)
         pts2 = np.float32(pts2)
@@ -73,6 +77,13 @@ class StereoEngine:
         # Homography matrislerini kontrol et (Aşırı bükülmeyi engellemek için)
         # Eğer matrislerin determinantı çok küçükse veya bükülme çok fazlaysa başarısız say
         if np.abs(np.linalg.det(H1)) < 1e-3 or np.abs(np.linalg.det(H2)) < 1e-3:
+            return None, None, False
+
+        # Dönme kontrolü: Uncalibrated rectification'ın resmi aşırı döndürmesini (tilted) engelle
+        angle1 = np.degrees(np.arctan2(H1[1, 0], H1[0, 0]))
+        angle2 = np.degrees(np.arctan2(H2[1, 0], H2[0, 0]))
+        if abs(angle1) > 10.0 or abs(angle2) > 10.0:
+            # Dönme açısı çok fazla, hizalamayı başarısız say ki orijinal resimlerle devam etsin
             return None, None, False
 
         # Görüntüleri bük (warp)
