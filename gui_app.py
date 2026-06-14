@@ -361,6 +361,7 @@ class App(ctk.CTk):
             
             # --- Canlı Nesne Tespiti (2D Önizleme) ---
             if self.img_left is None and not self.is_calculating:
+                detected_by_ai = False
                 if self.ai_active and self.model is not None:
                     # YOLO ile akıllı tespit (İnsanları yoksayarak)
                     results = self.model(display_frame, verbose=False, conf=self.ai_confidence)[0]
@@ -376,6 +377,7 @@ class App(ctk.CTk):
                         
                         height, width = frame.shape[:2]
                         if w < width * 0.9 and h < height * 0.9:
+                            detected_by_ai = True
                             # Nesne adını Türkçeleştir (kısaca)
                             tr_label = self._translate_label(label)
                             cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
@@ -383,8 +385,10 @@ class App(ctk.CTk):
                             cv2.putText(display_frame, "Uzaklik hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                             # Ekranda çok fazla nesne işaretlememesi için ilk uygun olanı bulup çık
                             break
-                else:
-                    # Geleneksel yöntem (YOLO kapalıysa)
+                
+                # Eğer AI aktif değilse veya hedef bulamadıysa geleneksel yönteme dön
+                if not detected_by_ai:
+                    # Geleneksel yöntem
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     blurred = cv2.GaussianBlur(gray, (7, 7), 0)
                     edges = cv2.Canny(blurred, 30, 100)
@@ -401,7 +405,7 @@ class App(ctk.CTk):
                             height, width = frame.shape[:2]
                             if w < width * 0.9 and h < height * 0.9:
                                 cv2.rectangle(display_frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                                cv2.putText(display_frame, "Olcum Icin Hedeflenen Nesne", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                                cv2.putText(display_frame, "Hedef Nesne (Geleneksel)", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                                 cv2.putText(display_frame, "Uzaklik & Hacim hesaplanacak", (x, y + h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             # ----------------------------------------
             
@@ -651,6 +655,23 @@ class App(ctk.CTk):
             tr_label = self._translate_label(best['label'])
             self.lbl_volume.configure(text=f"AI: {tr_label} Tespit Edildi!", text_color="#2eb82e")
             self.on_slider_change(None)
+        else:
+            # Geleneksel yöntemle en büyük nesneyi bul (Cüzdan, Anahtar vb. YOLO tarafından tanınmayanlar için)
+            gray = cv2.cvtColor(self.img_left, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+            edges = cv2.Canny(blurred, 30, 100)
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+            closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+            contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                valid_contours = [c for c in contours if cv2.contourArea(c) > 3000]
+                if valid_contours:
+                    c = max(valid_contours, key=cv2.contourArea)
+                    x, y, w, h = cv2.boundingRect(c)
+                    self.selected_roi = [x, y, x+w, y+h]
+                    self.lbl_volume.configure(text="Geleneksel Kontur Tespiti Aktif", text_color="#2eb82e")
+                    self.on_slider_change(None)
 
     def add_current_view(self):
         """Mevcut ölçümü seansa ekler."""
